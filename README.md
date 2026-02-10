@@ -237,8 +237,8 @@ This project successfully demonstrates the implementation and comparison of six 
 
 ## Author
 
-Aryan Jain- Created as part of ML Assignment 2: Model Classification Comparison
+Created as part of ML Assignment 2: Model Classification Comparison
 
 ## Date
 
-January 22, 2026
+February 10, 2026
