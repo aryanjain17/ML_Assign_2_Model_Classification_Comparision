@@ -5,8 +5,10 @@ import joblib
 import json
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.preprocessing import StandardScaler
 import os
+import io
 
 # Set page configuration
 st.set_page_config(
@@ -94,7 +96,21 @@ dataset = load_dataset()
 
 # Sidebar for navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["📊 Model Comparison", "🔮 Make Prediction", "📈 Dataset Overview"])
+page = st.sidebar.radio("Go to", ["📊 Model Comparison", "🔮 Make Prediction", "📈 Dataset Overview", "🧪 Test Your Data"])
+
+# Add download button for dataset in sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("📥 Download Dataset")
+if dataset is not None:
+    csv_data = dataset.to_csv(index=False)
+    st.sidebar.download_button(
+        label="Download heart.csv",
+        data=csv_data,
+        file_name="heart_disease_dataset.csv",
+        mime="text/csv"
+    )
+else:
+    st.sidebar.info("Dataset not available")
 
 # Page 1: Model Comparison
 if page == "📊 Model Comparison":
@@ -181,6 +197,79 @@ if page == "📊 Model Comparison":
             best_mcc = df_results['MCC Score'].idxmax()
             best_mcc_value = df_results['MCC Score'].max()
             st.metric("Highest MCC Score", best_mcc, f"{best_mcc_value:.4f}")
+        
+        # Confusion Matrices for all models
+        st.markdown("---")
+        st.subheader("🔲 Confusion Matrices for All Models")
+        
+        if models and dataset is not None:
+            try:
+                # Prepare test data from dataset
+                from sklearn.model_selection import train_test_split
+                
+                X = dataset.drop('target', axis=1)
+                y = dataset['target']
+                _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+                
+                # Get scaler
+                scaler = models['scaler']
+                X_test_scaled = scaler.transform(X_test)
+                
+                # Models that need scaled data
+                scaled_models = ['Logistic Regression', 'K-Nearest Neighbors', 'Gaussian Naive Bayes']
+                
+                model_names = ['Logistic Regression', 'Decision Tree', 'K-Nearest Neighbors', 
+                              'Gaussian Naive Bayes', 'Random Forest', 'XGBoost']
+                
+                # Create 3x2 grid for confusion matrices
+                st.markdown("**Confusion matrices show how each model classifies the test data:**")
+                
+                for row in range(2):  # 2 rows
+                    cols = st.columns(3)  # 3 columns per row
+                    
+                    for col_idx in range(3):
+                        model_idx = row * 3 + col_idx
+                        if model_idx < len(model_names):
+                            model_name = model_names[model_idx]
+                            
+                            if model_name in models:
+                                model = models[model_name]
+                                
+                                # Use scaled or unscaled data based on model
+                                if model_name in scaled_models:
+                                    y_pred = model.predict(X_test_scaled)
+                                else:
+                                    y_pred = model.predict(X_test)
+                                
+                                # Generate confusion matrix
+                                cm = confusion_matrix(y_test, y_pred)
+                                
+                                with cols[col_idx]:
+                                    st.markdown(f"**{model_name}**")
+                                    
+                                    # Create confusion matrix plot
+                                    fig, ax = plt.subplots(figsize=(5, 4))
+                                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                                               xticklabels=['No Disease', 'Disease'],
+                                               yticklabels=['No Disease', 'Disease'],
+                                               ax=ax, cbar=False, square=True,
+                                               annot_kws={'size': 14, 'weight': 'bold'})
+                                    ax.set_ylabel('True Label', fontsize=10)
+                                    ax.set_xlabel('Predicted Label', fontsize=10)
+                                    ax.set_title(f'{model_name}', fontsize=11, pad=10)
+                                    plt.tight_layout()
+                                    st.pyplot(fig)
+                                    plt.close()
+                                    
+                                    # Display TN, FP, FN, TP
+                                    st.caption(f"TN: {cm[0,0]} | FP: {cm[0,1]} | FN: {cm[1,0]} | TP: {cm[1,1]}")
+                
+                st.info("💡 **Reading Confusion Matrices**: TN=True Negatives (correctly predicted no disease), FP=False Positives (incorrectly predicted disease), FN=False Negatives (missed disease), TP=True Positives (correctly predicted disease)")
+                
+            except Exception as e:
+                st.error(f"Error generating confusion matrices: {str(e)}")
+        else:
+            st.warning("Models or dataset not loaded. Cannot generate confusion matrices.")
 
 # Page 2: Make Prediction
 elif page == "🔮 Make Prediction":
@@ -338,6 +427,258 @@ elif page == "📈 Dataset Overview":
     
     else:
         st.error("Dataset not loaded. Please ensure 'heart.csv' is in the project directory.")
+
+# Page 4: Test Your Data
+elif page == "🧪 Test Your Data":
+    st.header("Test Your Own Dataset")
+    st.markdown("Upload your test data (CSV) and evaluate models with confusion matrix and classification reports")
+    
+    # File uploader
+    st.subheader("📤 Upload Test Data")
+    uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'])
+    
+    if uploaded_file is not None:
+        try:
+            # Read uploaded file
+            test_data = pd.read_csv(uploaded_file)
+            
+            st.success(f"✅ File uploaded successfully! Shape: {test_data.shape}")
+            
+            # Display uploaded data
+            with st.expander("View Uploaded Data"):
+                st.dataframe(test_data.head(20), use_container_width=True)
+            
+            # Check if target column exists
+            if 'target' not in test_data.columns:
+                st.error("❌ Error: 'target' column not found in the uploaded file!")
+                st.info("Your CSV file must include a 'target' column with the true labels.")
+            else:
+                # Separate features and target
+                X_test = test_data.drop('target', axis=1)
+                y_test = test_data['target']
+                
+                st.success(f"✅ Test samples: {len(X_test)}, Features: {len(X_test.columns)}")
+                
+                # Model selection dropdown
+                st.subheader("🎯 Select Model for Evaluation")
+                model_names = ['Logistic Regression', 'Decision Tree', 'K-Nearest Neighbors', 
+                              'Gaussian Naive Bayes', 'Random Forest', 'XGBoost']
+                
+                selected_model = st.selectbox(
+                    "Choose a model to evaluate:",
+                    model_names,
+                    key="model_selector"
+                )
+                
+                if st.button("🚀 Evaluate Model", type="primary"):
+                    if models and selected_model in models and 'scaler' in models:
+                        with st.spinner(f'Evaluating {selected_model}...'):
+                            try:
+                                model = models[selected_model]
+                                scaler = models['scaler']
+                                
+                                # Models that need scaled data
+                                scaled_models = ['Logistic Regression', 'K-Nearest Neighbors', 'Gaussian Naive Bayes']
+                                
+                                # Prepare data
+                                if selected_model in scaled_models:
+                                    X_test_processed = scaler.transform(X_test)
+                                else:
+                                    X_test_processed = X_test
+                                
+                                # Make predictions
+                                y_pred = model.predict(X_test_processed)
+                                y_pred_proba = model.predict_proba(X_test_processed)
+                                
+                                # Calculate metrics
+                                from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+                                
+                                accuracy = accuracy_score(y_test, y_pred)
+                                precision = precision_score(y_test, y_pred, average='binary', zero_division=0)
+                                recall = recall_score(y_test, y_pred, average='binary', zero_division=0)
+                                f1 = f1_score(y_test, y_pred, average='binary', zero_division=0)
+                                
+                                # Display metrics
+                                st.success(f"✅ Evaluation Complete for {selected_model}")
+                                st.markdown("---")
+                                
+                                # Metrics in columns
+                                st.subheader("📊 Evaluation Metrics")
+                                col1, col2, col3, col4 = st.columns(4)
+                                
+                                with col1:
+                                    st.metric("Accuracy", f"{accuracy:.4f}")
+                                with col2:
+                                    st.metric("Precision", f"{precision:.4f}")
+                                with col3:
+                                    st.metric("Recall", f"{recall:.4f}")
+                                with col4:
+                                    st.metric("F1 Score", f"{f1:.4f}")
+                                
+                                st.markdown("---")
+                                
+                                # Confusion Matrix and Classification Report side by side
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.subheader("🔲 Confusion Matrix")
+                                    cm = confusion_matrix(y_test, y_pred)
+                                    
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                                               xticklabels=['No Disease', 'Disease'],
+                                               yticklabels=['No Disease', 'Disease'],
+                                               ax=ax, cbar_kws={'label': 'Count'})
+                                    ax.set_ylabel('True Label')
+                                    ax.set_xlabel('Predicted Label')
+                                    ax.set_title(f'Confusion Matrix - {selected_model}')
+                                    plt.tight_layout()
+                                    st.pyplot(fig)
+                                    
+                                    # Display confusion matrix values
+                                    st.markdown("**Confusion Matrix Values:**")
+                                    st.markdown(f"- True Negatives (TN): {cm[0, 0]}")
+                                    st.markdown(f"- False Positives (FP): {cm[0, 1]}")
+                                    st.markdown(f"- False Negatives (FN): {cm[1, 0]}")
+                                    st.markdown(f"- True Positives (TP): {cm[1, 1]}")
+                                
+                                with col2:
+                                    st.subheader("📋 Classification Report")
+                                    
+                                    # Get classification report as dict
+                                    report = classification_report(y_test, y_pred, 
+                                                                  target_names=['No Disease', 'Disease'],
+                                                                  output_dict=True,
+                                                                  zero_division=0)
+                                    
+                                    # Convert to DataFrame for better display
+                                    report_df = pd.DataFrame(report).transpose()
+                                    
+                                    # Format the dataframe
+                                    report_df_display = report_df.copy()
+                                    for col in report_df_display.columns:
+                                        if col == 'support':
+                                            report_df_display[col] = report_df_display[col].apply(
+                                                lambda x: f"{int(x)}" if not pd.isna(x) else ""
+                                            )
+                                        else:
+                                            report_df_display[col] = report_df_display[col].apply(
+                                                lambda x: f"{x:.4f}" if not pd.isna(x) else ""
+                                            )
+                                    
+                                    st.dataframe(report_df_display, use_container_width=True)
+                                    
+                                    # Download classification report
+                                    report_csv = report_df.to_csv()
+                                    st.download_button(
+                                        label="📥 Download Classification Report",
+                                        data=report_csv,
+                                        file_name=f"classification_report_{selected_model.replace(' ', '_')}.csv",
+                                        mime="text/csv"
+                                    )
+                                
+                                # Additional visualizations
+                                st.markdown("---")
+                                st.subheader("📈 Additional Insights")
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # Prediction distribution
+                                    st.markdown("**Prediction Distribution**")
+                                    pred_counts = pd.Series(y_pred).value_counts()
+                                    
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    pred_counts.plot(kind='bar', ax=ax, color=['lightgreen', 'lightcoral'])
+                                    ax.set_xlabel('Predicted Class')
+                                    ax.set_ylabel('Count')
+                                    ax.set_title('Distribution of Predictions')
+                                    ax.set_xticklabels(['No Disease', 'Disease'], rotation=0)
+                                    for i, v in enumerate(pred_counts):
+                                        ax.text(i, v + 1, str(v), ha='center', va='bottom', fontweight='bold')
+                                    plt.tight_layout()
+                                    st.pyplot(fig)
+                                
+                                with col2:
+                                    # True vs Predicted comparison
+                                    st.markdown("**Actual vs Predicted Comparison**")
+                                    true_counts = pd.Series(y_test).value_counts()
+                                    
+                                    comparison_df = pd.DataFrame({
+                                        'Actual': true_counts.values,
+                                        'Predicted': pred_counts.values
+                                    }, index=['No Disease', 'Disease'])
+                                    
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    comparison_df.plot(kind='bar', ax=ax, color=['skyblue', 'salmon'])
+                                    ax.set_xlabel('Class')
+                                    ax.set_ylabel('Count')
+                                    ax.set_title('Actual vs Predicted Distribution')
+                                    ax.set_xticklabels(['No Disease', 'Disease'], rotation=0)
+                                    ax.legend()
+                                    plt.tight_layout()
+                                    st.pyplot(fig)
+                                
+                            except Exception as e:
+                                st.error(f"❌ Error during evaluation: {str(e)}")
+                                st.info("Please ensure your CSV file has the same features as the training data.")
+                    else:
+                        st.error("Models not loaded properly. Please check the model files.")
+        
+        except Exception as e:
+            st.error(f"❌ Error reading file: {str(e)}")
+            st.info("Please ensure your CSV file is properly formatted.")
+    
+    else:
+        st.info("👆 Please upload a CSV file to begin testing")
+        
+        # Show expected format
+        st.subheader("📝 Expected File Format")
+        st.markdown("""
+        Your CSV file should have the following structure:
+        - **Required columns**: age, sex, cp, trestbps, chol, fbs, restecg, thalach, exang, oldpeak, slope, ca, thal, target
+        - The **target** column should contain binary values (0 = No Disease, 1 = Disease)
+        - All other columns should contain numerical values
+        
+        **Example:**
+        """)
+        
+        example_data = pd.DataFrame({
+            'age': [63, 67, 67],
+            'sex': [1, 1, 1],
+            'cp': [1, 4, 4],
+            'trestbps': [145, 160, 120],
+            'chol': [233, 286, 229],
+            'fbs': [1, 0, 0],
+            'restecg': [2, 2, 2],
+            'thalach': [150, 108, 129],
+            'exang': [0, 1, 1],
+            'oldpeak': [2.3, 1.5, 2.6],
+            'slope': [3, 2, 2],
+            'ca': [0, 3, 2],
+            'thal': [6, 3, 7],
+            'target': [0, 1, 1]
+        })
+        
+        st.dataframe(example_data, use_container_width=True)
+        
+        # Download sample data
+        if dataset is not None:
+            st.markdown("---")
+            st.subheader("📥 Download Sample Test Data")
+            st.markdown("You can download the full dataset and use a portion as test data:")
+            
+            # Create a sample test dataset (20% of original)
+            sample_size = int(len(dataset) * 0.2)
+            sample_data = dataset.sample(n=sample_size, random_state=42)
+            
+            csv_sample = sample_data.to_csv(index=False)
+            st.download_button(
+                label="Download Sample Test Data (20% of full dataset)",
+                data=csv_sample,
+                file_name="sample_test_data.csv",
+                mime="text/csv"
+            )
 
 # Footer
 st.markdown("---")
