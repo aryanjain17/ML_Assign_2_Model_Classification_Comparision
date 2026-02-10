@@ -19,7 +19,8 @@ https://aryan-jain-ml-assign-2-modelclassificationcomparision.streamlit.app/
 
 ## 3. Screenshot – Execution on BITS Virtual Lab
 
-![alt text](image.png)
+<img width="2838" height="1720" alt="image" src="https://github.com/user-attachments/assets/fb718fde-b758-499b-82a1-96994c7bbd6d" />
+
 
 ---
 
